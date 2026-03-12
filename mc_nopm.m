@@ -5,7 +5,7 @@
 % ------------------------------+
 % Raonaqul Islam, UMBC          |
 % Date started: March 19, 2025  |
-% Last updated: Sep 5, 2025     |
+% Last updated: Nov 01, 2025    |
 % ------------------------------+
 
 clear
@@ -14,15 +14,15 @@ close all
 tic
 
 % Load previous solution
-load ./data/intnopm2.mat
+load ./data/intnopm100ghz_3.mat
 
 % Monte-Carlo parameters
-N_sim        = 300;                    % No. of Monte-Carlo simulations
-N_steps      = 5e6;                    % No. of steps in each iteration
-nopmtheta0   = zeros(N_steps,N_sim);   % Store peaks
-nopmcircmean = zeros(N_steps,N_sim);   % Store circular means
+plot_evo     = false;
+N_sim        = 60;                     % No. of Monte-Carlo simulations (multiples of 64 because 64 parallel processes will be used)
+N_steps      = 6e6;                    % No. of steps in each iteration
+savestep     = 1;                      % Save every "S" steps to reduce memory usage
 
-parfor k = 1:N_sim
+for k = 1:N_sim
 
     % Use different random seeds for each simulation
     rng(k);
@@ -33,30 +33,40 @@ parfor k = 1:N_sim
     %                        SIMULATION PARAMETERS                        %
     % *********************************************************************
     N          = 512;                             % No. of points on axis | Spatial resolution
-    dt         = 1e-4;                            % Temporal step size
+    dt         = 1e-2;                            % Temporal step size
     psi_0      = psi_prev;                        % Initial condition from previous solution
-    theta0     = zeros(N_steps,1);                % Initiate peak position array
-    circmean   = zeros(N_steps,1);                % Initiate circular mean array
+    theta0     = zeros(N_steps/savestep,1);       % Initiate peak position array
+    circmean   = zeros(N_steps/savestep,1);       % Initiate circular mean array
+    dw_rep = zeros(N_steps,1);
+    count      = 1;                               % Sets the index of saving-to-file
 
     % *********************************************************************
     %                          NOISE PARAMETERS                           %
     % *********************************************************************
-    A          = 10;                               % Noise amplitude    
-    noise      = zeros(N_steps+1,1);               % Noise array
+    A          = 10;                              % Noise amplitude    
+    noise      = zeros(N_steps+1,1);              % Noise array
+
+    % Generate figure to plot on with a white background
+    if plot_evo == true
+        figure('Units','inches','Position',[6 4 8 4],'Color','White');
+    end
 
     % Time steps
     for ix = 1:N_steps
 
+        % disp(ix)
+
         % *****************************************************************
         %                           PARAMETERS                            %
         % *****************************************************************
-        alpha   = 2.0;                            % Detuning
+        alpha   = 3.2;                            % Detuning
         beta    = -0.2;                           % Dispersion, beta2 only in this case
-        F       = 1.4103;                         % Pump amplitude
+        F       = 2.2;                            % Pump amplitude
         gamma   = 1.0;                            % Normalized nonlinear coefficient
         deltaM  = 0;                              % Phase modulation        
-        gamma_n = 2e5;                            % Noise disspation factor
-        tph     = 2.5e-6;                         % Photon lifetime
+        gamma_n = 1e6;                            % Noise disspation factor
+        tph     = 8.23e-6;                        % Photon lifetime
+        R       = 225e-6;                         % Cavity radius
 
         % *****************************************************************
         %                         DISCRETIZATION                          %
@@ -99,19 +109,46 @@ parfor k = 1:N_sim
         % Output after one-step
         psi_out     = psi_nl2;
 
-        % Calculate centroid        
-        I           = abs(psi_out).^2;               % Intensity
-        theta0(ix)  = sum(I.*theta)/sum(I);          % Centroid
-        circmean(ix) = angle(sum(I.*exp(1i*theta))); % Weighted circular mean
+        if plot_evo==true && rem(ix,1/dt)==0 % Plot every photon lifetime
+            plot(theta/pi,abs(psi_out).^2,'LineWidth',2.5,'Color',[0.07 0.62 1]);
+            xlabel('\theta/\pi');
+            ylabel('|\psi|^2');
+            title(sprintf('No. of {\\it{\\tau}}_p = %0.3f/%d',ix*dt,dt*N_steps));
+            xlim([-1 1]);
+            ax = gca;
+            set(ax,'FontSize',16,'FontName','Times New Roman','LineWidth',1.2)
+            xticklabels(strrep(xticklabels,'-',char(0x2212)))
+            xline(0,'LineWidth',2,'Color','k','LineStyle','--')
+            grid on
+            ax.GridLineWidth = 3;
+            ax.GridAlpha = 0.02;
+            ax.GridLineStyle = '-';
+            drawnow
+        end
+
+        % Calculate centroid  
+        if rem(ix,savestep)==0
+            I               = abs(psi_out).^2;               % Intensity
+            theta0(count)   = sum(I.*theta)/sum(I);          % Centroid
+            circmean(count) = angle(sum(I.*exp(1i*theta)));  % Weighted circular mean          
+            if ix>1
+                dw_rep(count) = (theta0(count)-theta0(count-1))./dt;
+            end
+            count           = count+1;                       % Index count
+        end
     end
 
-    % Store this iteration
-    nopmtheta0(:,k) = theta0;
-    nopmcircmean(:,k) = circmean;
+    % *********************************************************************
+    %                             SAVE DATA                               %
+    % *********************************************************************        
+    % Form a structure to store data (because of the parallel pool)
+    data_structure = struct('theta0',theta0,'circmean',circmean);                           
+    % Save the structure   
+    save(sprintf('./data/mc_nopm_110325/mc_nopm_110325_%d.mat',k),'-fromstruct',data_structure); 
 
 end
 
 time_elapsed = toc;
 
-% Save the results in a mat file (v7.3 for larger files)
-save('./data/mc_nopm_090125.mat','nopmtheta0','nopmcircmean','time_elapsed','-v7.3');
+% Show elapsed time
+disp(['Elapsed time = ' num2str(time_elapsed)]);
