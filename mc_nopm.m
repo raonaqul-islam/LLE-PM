@@ -18,11 +18,11 @@ load ./data/intnopm100ghz_3.mat
 
 % Monte-Carlo parameters
 plot_evo     = false;
-N_sim        = 60;                     % No. of Monte-Carlo simulations (multiples of 64 because 64 parallel processes will be used)
-N_steps      = 6e6;                    % No. of steps in each iteration
+N_sim        = 120;                    % No. of Monte-Carlo simulations (multiples of 64 because 64 parallel processes will be used)
+N_steps      = 1e8;                    % No. of steps in each iteration
 savestep     = 1;                      % Save every "S" steps to reduce memory usage
 
-for k = 1:N_sim
+parfor k = 1:N_sim
 
     % Use different random seeds for each simulation
     rng(k);
@@ -152,3 +152,4 @@ time_elapsed = toc;
 
 % Show elapsed time
 disp(['Elapsed time = ' num2str(time_elapsed)]);
+
