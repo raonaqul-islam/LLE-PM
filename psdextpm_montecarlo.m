@@ -1,80 +1,76 @@
-%% POWER SPECTRAL DENSITY OF EXTERNAL-MODULATION CASE
-% This subroutine loads the centroid data from a .mat file and calculates
-% the power spectral density for the case where there is no-modulation to
-% the pump. It also calculates it analytically and plots them on top of
-% each other.
+%% POWER SPECTRAL DENSITY OF FEEDBACK-MODULATION CASE
 
+clc
 clear
 close all
 
-% ---- Load centroid data ---- %
-load ./data/mc_extpm_020925.mat                  
+% *************************************************************************
+%                        SIMULATION PARAMETERS                            %
+% *************************************************************************
+issave       = true;                              % If you want to save data
+N_sim        = 120;                                % No. of simulations
+N            = 1e6;                                % No. of samples
+R            = 225e-6;                             % Radius of the microresonator
+dt           = 1e-2;                               % Discretization
+tph          = 8.23e-10;                           % Photon lifetime
+kappa        = 1/tph;                              % Cavity decay rate
+dt           = tph*dt;                             % De-normalized time-step
+fs           = 1/(100*dt);                               % Sampling frequency
+skip         = 0;                                  % No. of samples to skip
 
-% ---- Parameters ---- %
-R      = 2.5e-3;
-tph    = 2.5e-6;                                   % Photon lifetime
-N      = 5e6;                                      % No. of steps
-dt     = 1e-4;                                     % Time step
-dt     = dt*tph;                                   % Time-step de-normalized
-theta0 = extpmcircmean;                              % Average
-fs     = 1/dt;                                     % Sampling frequency
-theta1 = unwrap(theta0,[],1);                      % Unwrapping the centroids   
-psd1   = zeros(N-1,size(theta0,2));                % Initiate array for repetition-rate psd
-
-% ---- Calculate velocity ---- %
-v     = diff(theta1,[],1)/(dt);                  % Calculate velocity
-v_fft = fft(v,[],1);                               % Take fourier transform of velocity
-
-% ----- Calculate PSD ---- %
-Nv    = size(v_fft,1);                             % Array size
-
-for kk = 1:size(v_fft,2)
-    psd1(:,kk)  = abs(v_fft(:,kk)).^2/(Nv*fs);     % PSD without windowing
+% *************************************************************************
+%                     LOAD DATA AND CALCULATE PSD                         %
+% *************************************************************************
+Nw = length(skip+1:N)-1;
+Swrep_all = zeros(Nw,N_sim);
+for ik = 1:N_sim
+    load(sprintf('../data/mc_extpm_112325/mc_extpm_112325_%d.mat',ik));    
+    circmean  = unwrap(circmean);                  % Unwrap to avoid boundary jumps
+    dwrep     = diff(circmean(skip+1:N))/(dt)*R;   % Calculate f_rep noise
+    dwrep_fft = fft(dwrep);                        % Fourier transform of f_rep noise   
+    Swrep     = abs(dwrep_fft).^2/(Nw*fs);         % Power spectral density of f_rep noise
+    Swrep_all(:,ik) = Swrep;                       % Store current iteration    
+    clear circmean theta0 dwrep dwrep_fft Swrep    % Clear variables to save memory 
 end
-psd1  = sum(psd1,2)/sqrt(size(psd1,2));            % Take average
 
-% ----- Take only positive frequencies ---- %
-if rem(Nv,2)==0
+% Averaged frequency noise
+Swrep  = sum(Swrep_all,2)/sqrt(N_sim);
+
+% Take only positive frequencies
+if rem(Nw,2)==0
     % If array size is even
-    psd1_onesided = psd1(1:Nv/2+1);
-    psd1_onesided(2:end-1) = 2*psd1_onesided(2:end-1);
-    f_one_sided = (0:Nv/2)'*(fs/Nv);
+    Swrep_onesided = Swrep(1:Nw/2+1);
+    Swrep_onesided(2:end-1) = 2*Swrep_onesided(2:end-1);
+    f_one_sided = (0:Nw/2)'*(fs/(Nw));    
 else
     % If array size is odd
-    psd1_onesided = psd1(1:(Nv+1)/2);
-    psd1_onesided(2:end) = 2*psd1_onesided(2:end);
-    f_one_sided = (0:(Nv-1)/2)'*(fs/Nv);
+    Swrep_onesided = Swrep(1:(Nw+1)/2);
+    Swrep_onesided(2:end) = 2*Swrep_onesided(2:end);
+    f_one_sided = (0:(Nw-1)/2)'*(fs/(Nw));    
 end
 
-% ---- Plot LLE-PSD ---- %
+% *************************************************************************
+%                            PLOT NUMERICAL                               %
+% *************************************************************************
 fig = figure('Units','inches','Position',[5 5 12 5],'Color','White');
-set(gcf,'DefaultLineLineWidth',3);
-loglog(f_one_sided,psd1_onesided,'r-');
-hold on;
+set(gcf,'DefaultLineLineWidth',2);
 
-% ---- Calculate and plot PSD analytically ---- %
-kappa     = 1/tph;
-nu        = f_one_sided;
-eta       = 1.65e6;
-gamma_n   = 2e5;                           % Normalized gamma_n 
-A         = 10;                            % Normalized noise amplitude
-lda       = 0.2;                           % Position shifting eigenvalue
-PSDextpm  = (2*eta^2*A.*(2*pi*nu).^2)./((gamma_n^2+(2*pi*nu).^2).*(kappa^2*lda^2+(2*pi*nu).^2));
-loglog(nu,PSDextpm,'k--');
+loglog(f_one_sided,Swrep_onesided,'r-');
+xline(kappa*0.13,'Color','Black','LineStyle','--','Linewidth',1);
+ylabel('Frequency Noise (Hz^2/Hz)');
+xlabel('Offset Frequency (Hz)');
+title('External PM')
+% xlim([1e3 1e11]);
+hold on
 
-% ---- Plot settings ---- %
-legend('LLE','Analytical')
-set(gca,'FontSize',14,'FontName','Times New Roman','LineWidth',1.2,'TickDir','Out');
+set(gca,'FontSize',14,'FontName','Arial','LineWidth',1,'TickDir','Out');
 yticklabels(strrep(yticklabels,'-',char(0x2212)))
 xticklabels(strrep(xticklabels,'-',char(0x2212)))
-title('External-modulation (Mone-Carlo)')
-box off;
-ylabel('Power Spectral Density');
-xlabel('Frequency (Hz)');
-xline(gamma_n/(2*pi),'Color','k','alpha',0.2,'LineStyle','--','LineWidth',3);
+box off
 
-% ---- Save data ---- %
-psdextpm.LLE = psd1_onesided;
-psdextpm.analytic = PSDextpm;
-psdextpm.nu = f_one_sided;
-save('./data/psdextpm2.mat','psdextpm');
+% Save data
+if issave == true
+    num_extpm.LLE      = Swrep_onesided;    
+    num_extpm.nu       = f_one_sided;    
+    save('../data/psdextpm_112925.mat','num_extpm');
+end
